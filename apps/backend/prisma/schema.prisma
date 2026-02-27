@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TECHNICIAN
+  ATTENDANT
+}
+
+enum CompanyPlan {
+  FREE
+  PRO
+}
+
+enum ServiceOrderStatus {
+  RECEIVED
+  IN_ANALYSIS
+  WAITING_PART
+  BUDGET_SENT
+  IN_MAINTENANCE
+  READY
+  DELIVERED
+  CANCELED
+  WAITING_PICKUP
+}
+
+enum BudgetStatus {
+  PENDING
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model Company {
+  id                 String         @id @default(cuid())
+  name               String
+  plan               CompanyPlan
+  monthlyOsLimit     Int            @default(50)
+  stripeCustomerId   String?
+  stripeSubscription String?
+  createdAt          DateTime       @default(now())
+  users              User[]
+  clients            Client[]
+  serviceOrders      ServiceOrder[]
+  products           Product[]
+  settings           Setting?
+  notifications      Notification[]
+  logs               Log[]
+}
+
+model User {
+  id           String         @id @default(cuid())
+  companyId    String
+  name         String
+  email        String         @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime       @default(now())
+  company      Company        @relation(fields: [companyId], references: [id])
+  statusEvents ServiceOrderStatusHistory[] @relation("changedBy")
+}
+
+model Client {
+  id            String         @id @default(cuid())
+  companyId     String
+  name          String
+  cpfCnpj       String?
+  phone         String
+  whatsapp      String?
+  email         String?
+  address       String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  company       Company        @relation(fields: [companyId], references: [id])
+  serviceOrders ServiceOrder[]
+}
+
+model ServiceOrder {
+  id                String                     @id @default(cuid())
+  companyId         String
+  clientId          String
+  technicianId      String
+  sequence          Int
+  status            ServiceOrderStatus
+  priorityColor     String?                    
+  warrantyUntil     DateTime?
+  internalNotes     String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  company           Company                    @relation(fields: [companyId], references: [id])
+  client            Client                     @relation(fields: [clientId], references: [id])
+  equipments        ServiceOrderEquipment[]
+  statusHistory     ServiceOrderStatusHistory[]
+  budget            Budget?
+  warranty          Warranty?
+
+  @@unique([companyId, sequence])
+}
+
+model ServiceOrderEquipment {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  equipmentType  String
+  brand          String
+  model          String
+  serialNumber   String?
+  devicePassword String?
+  accessories    String?
+  reportedIssue  String
+  physicalState  String?
+  checklist      Json?
+  photos         String[]
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+}
+
+model ServiceOrderStatusHistory {
+  id             String             @id @default(cuid())
+  serviceOrderId String
+  status         ServiceOrderStatus
+  changedById    String
+  changedAt      DateTime           @default(now())
+  serviceOrder   ServiceOrder       @relation(fields: [serviceOrderId], references: [id])
+  changedBy      User               @relation("changedBy", fields: [changedById], references: [id])
+}
+
+model Budget {
+  id                String       @id @default(cuid())
+  serviceOrderId    String       @unique
+  status            BudgetStatus @default(PENDING)
+  subtotal          Decimal      @db.Decimal(10, 2)
+  discountPercent   Decimal?     @db.Decimal(5, 2)
+  discountFixed     Decimal?     @db.Decimal(10, 2)
+  laborPrice        Decimal      @db.Decimal(10, 2)
+  total             Decimal      @db.Decimal(10, 2)
+  technicalNotes    String?
+  integrityHash     String
+  expiresAt         DateTime
+  approvedAt        DateTime?
+  rejectedReason    String?
+  serviceOrder      ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  token             BudgetToken?
+  items             BudgetItem[]
+}
+
+model BudgetToken {
+  id          String   @id @default(cuid())
+  budgetId    String   @unique
+  token       String   @unique
+  ipAddress   String?
+  viewedAt    DateTime?
+  acceptedAt  DateTime?
+  expiresAt   DateTime
+  budget      Budget   @relation(fields: [budgetId], references: [id])
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String
+  category      String
+  internalCode  String
+  supplier      String?
+  costPrice     Decimal  @db.Decimal(10, 2)
+  salePrice     Decimal  @db.Decimal(10, 2)
+  quantity      Int
+  lowStockAlert Int      @default(5)
+  company       Company  @relation(fields: [companyId], references: [id])
+  movements     StockMovement[]
+  budgetItems   BudgetItem[]
+
+  @@unique([companyId, internalCode])
+}
+
+model StockMovement {
+  id         String   @id @default(cuid())
+  productId  String
+  type       String
+  quantity   Int
+  reason     String
+  createdAt  DateTime @default(now())
+  product    Product  @relation(fields: [productId], references: [id])
+}
+
+
+model BudgetItem {
+  id          String   @id @default(cuid())
+  budgetId     String
+  productId    String?
+  description  String
+  quantity     Int
+  unitPrice    Decimal  @db.Decimal(10, 2)
+  totalPrice   Decimal  @db.Decimal(10, 2)
+  type         String
+  budget       Budget   @relation(fields: [budgetId], references: [id])
+  product      Product? @relation(fields: [productId], references: [id])
+}
+
+model Warranty {
+  id             String      @id @default(cuid())
+  serviceOrderId String      @unique
+  terms          String
+  validUntil     DateTime
+  qrCodeUrl      String?
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  companyId   String
+  channel     String
+  recipient   String
+  subject     String?
+  body        String
+  status      String
+  createdAt   DateTime @default(now())
+  company     Company  @relation(fields: [companyId], references: [id])
+}
+
+model Setting {
+  id                         String   @id @default(cuid())
+  companyId                  String   @unique
+  serviceTerms               String
+  warrantyTerms              String
+  defaultWarrantyDays        Int      @default(90)
+  whatsappTemplates          Json
+  emailTemplates             Json
+  budgetValidityDays         Int      @default(5)
+  equipmentTypes             String[]
+  equipmentBrands            String[]
+  alertRules                 Json
+  company                    Company  @relation(fields: [companyId], references: [id])
+}
+
+model Log {
+  id         String   @id @default(cuid())
+  companyId  String
+  actorId    String?
+  action     String
+  resource   String
+  metadata   Json
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id])
+}
